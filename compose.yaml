@@ -1,0 +1,147 @@
+name: gov-manual-weknora
+services:
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    cpus: 4
+    mem_limit: 8g
+    networks: [rerank-local]
+    command: ['--model-id', '/model', '--dtype', 'float32', '--max-batch-tokens', '4096', '--max-batch-requests', '4', '--max-client-batch-size', '100', '--tokenization-workers', '2', '--auto-truncate']
+    environment:
+      HF_HUB_OFFLINE: '1'
+      OMP_NUM_THREADS: '4'
+      MKL_NUM_THREADS: '4'
+    volumes:
+      - ./data/models/bge-reranker-v2-m3:/model:ro
+    restart: unless-stopped
+  rerank-api:
+    image: python:3.12-alpine
+    networks: [default, rerank-local]
+    command: ['python', '/app/rerank_proxy.py']
+    volumes:
+      - ./config/rerank_proxy.py:/app/rerank_proxy.py:ro
+    ports:
+      - '127.0.0.1:${RERANK_PORT:-18768}:8080'
+    depends_on:
+      - reranker
+    healthcheck:
+      test: [CMD, python, '-c', "import urllib.request; urllib.request.urlopen('http://localhost:8080/health',timeout=15)"]
+      interval: 20s
+      timeout: 20s
+      retries: 15
+      start_period: 360s
+    restart: unless-stopped
+  postgres:
+    image: paradedb/paradedb:v0.22.2-pg17
+    environment:
+      POSTGRES_USER: ${DB_USER:?Run scripts/init_config.py}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Run scripts/init_config.py}
+      POSTGRES_DB: ${DB_NAME:?Run scripts/init_config.py}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  redis:
+    image: redis:7.0-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/init_config.py}
+    command: [sh, -c, 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+  docreader:
+    image: wechatopenai/weknora-docreader:${WEKNORA_VERSION:-v0.8.0}
+    environment:
+      TZ: Asia/Seoul
+      LOG_LEVEL: info
+      DOCREADER_IMAGE_OUTPUT_DIR: /tmp/docreader
+      DOCREADER_GRPC_PORT: '50051'
+      DOCREADER_GRPC_MAX_WORKERS: '2'
+    volumes:
+      - docreader-tmp:/tmp/docreader
+    healthcheck:
+      test: [CMD, grpc_health_probe, '-addr=localhost:50051']
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+  app:
+    image: wechatopenai/weknora-app:${WEKNORA_VERSION:-v0.8.0}
+    env_file: .env
+    environment:
+      GIN_MODE: release
+      LOG_LEVEL: info
+      TZ: Asia/Seoul
+      WEKNORA_LANGUAGE: ko-KR
+      SSRF_WHITELIST: rerank-api
+      DB_DRIVER: postgres
+      DB_HOST: postgres
+      DB_PORT: '5432'
+      RETRIEVE_DRIVER: postgres
+      REDIS_ADDR: redis:6379
+      REDIS_DB: '0'
+      REDIS_PREFIX: gov-manual-weknora
+      STREAM_MANAGER_TYPE: redis
+      STORAGE_TYPE: local
+      STORAGE_ALLOW_LIST: local
+      LOCAL_STORAGE_BASE_DIR: /data/files
+      DOCREADER_ADDR: docreader:50051
+      DOCREADER_TRANSPORT: grpc
+      AUTO_MIGRATE: 'true'
+      NEO4J_ENABLE: 'false'
+      WEKNORA_SANDBOX_DOCKER_ENABLED: 'false'
+      WEKNORA_SANDBOX_MODE: disabled
+      DISABLE_REGISTRATION: 'false'
+      WEKNORA_BOOTSTRAP_SYSTEM_ADMIN_EMAIL: ${ADMIN_EMAIL}
+      BUILTIN_MODELS_CONFIG: /app/config/builtin_models.yaml
+      CONCURRENCY_POOL_SIZE: '1'
+      WEKNORA_ASYNQ_CORE_CONCURRENCY: '1'
+      WEKNORA_ASYNQ_POSTPROCESS_CONCURRENCY: '1'
+      WEKNORA_ASYNQ_ENRICHMENT_CONCURRENCY: '1'
+      WEKNORA_ASYNQ_SHARED_CONCURRENCY: '1'
+      WEKNORA_MODEL_MAX_CONCURRENCY: '1'
+      FRONTEND_BASE_URL: http://localhost:${UI_PORT:-18765}
+    ports:
+      - '127.0.0.1:${API_PORT:-18766}:8080'
+    volumes:
+      - ./config/weknora.yaml:/app/config/config.yaml:ro
+      - ./config/builtin_models.yaml:/app/config/builtin_models.yaml:ro
+      - data-files:/data/files
+      - docreader-tmp:/tmp/docreader:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+      docreader: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:8080/health]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    restart: unless-stopped
+  frontend:
+    image: wechatopenai/weknora-ui:${WEKNORA_VERSION:-v0.8.0}
+    environment:
+      APP_HOST: app
+      APP_PORT: '8080'
+      APP_SCHEME: http
+      DEFAULT_LOCALE: ko-KR
+      MAX_FILE_SIZE_MB: '50'
+    ports:
+      - '127.0.0.1:${UI_PORT:-18765}:80'
+    depends_on:
+      app: {condition: service_healthy}
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  redis-data:
+  data-files:
+  docreader-tmp:
+networks:
+  default:
+  rerank-local:
+    internal: true

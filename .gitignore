@@ -1,0 +1,14 @@
+upstream/
+.env
+.venv/
+data/
+__pycache__/
+.pytest_cache/
+.tools/
+.secrets/
+.env.*
+!.env.example
+bundles/
+*.tar
+*.zip
+*.log

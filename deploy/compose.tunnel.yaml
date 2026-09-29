@@ -1,0 +1,15 @@
+# Public hostname service in Cloudflare: http://frontend:80
+services:
+  app:
+    environment:
+      DISABLE_REGISTRATION: 'true'
+      FRONTEND_BASE_URL: ${PUBLIC_URL:?Set PUBLIC_URL to the HTTPS hostname}
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    command: [tunnel, --no-autoupdate, run, --token-file, /run/secrets/tunnel_token]
+    secrets: [tunnel_token]
+    restart: unless-stopped
+    depends_on: [frontend]
+secrets:
+  tunnel_token:
+    file: ./.secrets/tunnel-token

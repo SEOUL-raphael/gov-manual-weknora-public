@@ -1,0 +1,32 @@
+builtin_models:
+  - id: gov-local-reranker
+    name: BAAI/bge-reranker-v2-m3
+    type: Rerank
+    source: remote
+    is_default: true
+    parameters:
+      base_url: http://rerank-api:8080/v1
+      api_key: ''
+      provider: generic
+  - id: gov-nvidia-embedding
+    name: nvidia/nemotron-3-embed-1b
+    type: Embedding
+    source: remote
+    is_default: true
+    parameters:
+      base_url: ${NVIDIA_API_URL}
+      api_key: ${NVIDIA_API_KEY}
+      provider: nvidia
+      embedding_parameters:
+        dimension: 2048
+        truncate_prompt_tokens: 0
+  - id: gov-minimax-chat
+    name: ${MINIMAX_MODEL}
+    type: KnowledgeQA
+    source: remote
+    is_default: true
+    parameters:
+      base_url: ${MINIMAX_API_URL}
+      api_key: ${MINIMAX_API_KEY}
+      provider: minimax
+      context_window: 196608

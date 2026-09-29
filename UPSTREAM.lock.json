@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/Tencent/WeKnora",
+  "tag": "v0.8.0",
+  "commit": "1edcd54b43606d9079bb36650efe3f68707a79ea",
+  "app_image": "wechatopenai/weknora-app:v0.8.0",
+  "ui_image": "wechatopenai/weknora-ui:v0.8.0",
+  "docreader_image": "wechatopenai/weknora-docreader:v0.8.0",
+  "config_sha256": "cbd09257ec4c1912e900f6038f502bdedc8ef77901c4d368c7c2e81e347b28c4"
+}
